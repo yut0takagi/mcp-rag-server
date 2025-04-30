@@ -1,10 +1,10 @@
-# Python MCP Server Boilerplate
+# MCP RAG Server
 
-Python MCP Server Boilerplateは、Model Context Protocol (MCP)に準拠したPythonサーバーを簡単に作成するためのテンプレートリポジトリです。
+MCP RAG Serverは、Model Context Protocol (MCP)に準拠したRAG（Retrieval-Augmented Generation）機能を持つPythonサーバーです。マークダウン、テキスト、パワーポイント、PDFなど複数の形式のドキュメントをデータソースとして、multilingual-e5-largeモデルを使用してインデックス化し、ベクトル検索によって関連情報を取得する機能を提供します。
 
 ## 概要
 
-このプロジェクトは、MCPサーバーの基本的な実装を提供し、独自のツールを簡単に追加できるようにします。Model Context Protocol (MCP)は、LLMとサーバー間の通信プロトコルで、LLMに外部APIやサービスへのアクセス、リアルタイムデータの取得、アプリケーションやローカルシステムの制御などの機能を提供します。
+このプロジェクトは、MCPサーバーの基本的な実装に加えて、RAG機能を提供します。複数形式のドキュメントをインデックス化し、自然言語クエリに基づいて関連情報を検索することができます。
 
 ## 機能
 
@@ -13,14 +13,24 @@ Python MCP Server Boilerplateは、Model Context Protocol (MCP)に準拠したPy
   - ツールの登録と実行のためのメカニズム
   - エラーハンドリングとロギング
 
-- **サンプルツール**
-  - システム情報を取得するツール
-  - 現在の日時を取得するツール
-  - エコーツール（入力されたテキストをそのまま返す）
+- **RAG機能**
+  - 複数形式のドキュメント（マークダウン、テキスト、パワーポイント、PDF）の読み込みと解析
+  - 階層構造を持つソースディレクトリに対応
+  - markitdownライブラリを使用したパワーポイントやPDFからのマークダウン変換
+  - multilingual-e5-largeモデルを使用したエンベディング生成
+  - PostgreSQLのpgvectorを使用したベクトルデータベース
+  - ベクトル検索による関連情報の取得
+  - 差分インデックス化機能（新規・変更ファイルのみを処理）
 
-- **拡張性**
-  - 独自のツールを簡単に追加可能
-  - 外部モジュールからのツール登録をサポート
+- **ツール**
+  - ベクトル検索ツール（MCP）
+  - ドキュメント数取得ツール（MCP）
+  - インデックス管理ツール（CLI）
+
+## 前提条件
+
+- Python 3.10以上
+- PostgreSQL 14以上（pgvectorエクステンション付き）
 
 ## インストール
 
@@ -32,6 +42,54 @@ Python MCP Server Boilerplateは、Model Context Protocol (MCP)に準拠したPy
 
 # 依存関係のインストール
 uv sync
+
+# markitdownライブラリのインストール
+uv pip install markitdown
+```
+
+### PostgreSQLとpgvectorのセットアップ
+
+#### Dockerを使用する場合
+
+```bash
+# pgvectorを含むPostgreSQLコンテナを起動
+docker run --name postgres-pgvector -e POSTGRES_PASSWORD=password -p 5432:5432 -d pgvector/pgvector:pg14
+```
+
+#### データベースの作成
+
+PostgreSQLコンテナを起動した後、以下のコマンドでデータベースを作成します：
+
+```bash
+# ragdbデータベースの作成
+docker exec -it postgres-pgvector psql -U postgres -c "CREATE DATABASE ragdb;"
+```
+
+#### 既存のPostgreSQLにpgvectorをインストールする場合
+
+```sql
+-- pgvectorエクステンションをインストール
+CREATE EXTENSION vector;
+```
+
+### 環境変数の設定
+
+`.env`ファイルを作成し、以下の環境変数を設定します：
+
+```
+# PostgreSQL接続情報
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=password
+POSTGRES_DB=ragdb
+
+# ドキュメントディレクトリ
+SOURCE_DIR=./data/source
+PROCESSED_DIR=./data/processed
+
+# エンベディングモデル
+EMBEDDING_MODEL=intfloat/multilingual-e5-large
 ```
 
 ## 使い方
@@ -47,7 +105,7 @@ uv run python -m src.main
 オプションを指定する場合：
 
 ```bash
-uv run python -m src.main --name "my-mcp-server" --version "1.0.0" --description "My MCP Server"
+uv run python -m src.main --name "my-rag-server" --version "1.0.0" --description "My RAG Server"
 ```
 
 #### 通常のPythonを使用する場合
@@ -56,10 +114,46 @@ uv run python -m src.main --name "my-mcp-server" --version "1.0.0" --description
 python -m src.main
 ```
 
-オプションを指定する場合：
+### コマンドラインツール（CLI）の使用方法
+
+インデックスのクリアとインデックス化を行うためのコマンドラインツールが用意されています。
+
+#### ヘルプの表示
 
 ```bash
-python -m src.main --name "my-mcp-server" --version "1.0.0" --description "My MCP Server"
+python -m src.cli --help
+```
+
+#### インデックスのクリア
+
+```bash
+python -m src.cli clear
+```
+
+#### ドキュメントのインデックス化
+
+```bash
+# デフォルト設定でインデックス化（./data/source ディレクトリ）
+python -m src.cli index
+
+# 特定のディレクトリをインデックス化
+python -m src.cli index --directory ./path/to/documents
+
+# チャンクサイズとオーバーラップを指定してインデックス化
+python -m src.cli index --directory ./data/source --chunk-size 300 --chunk-overlap 50
+# または短い形式で
+python -m src.cli index -d ./data/source -s 300 -o 50
+
+# 差分インデックス化（新規・変更ファイルのみを処理）
+python -m src.cli index --incremental
+# または短い形式で
+python -m src.cli index -i
+```
+
+#### インデックス内のドキュメント数の取得
+
+```bash
+python -m src.cli count
 ```
 
 ### Cline/Cursorでの設定
@@ -67,12 +161,12 @@ python -m src.main --name "my-mcp-server" --version "1.0.0" --description "My MC
 Cline/CursorなどのAIツールでMCPサーバーを使用するには、`mcp_settings.json`ファイルに以下のような設定を追加します：
 
 ```json
-"my-mcp-server": {
+"mcp-rag-server": {
   "command": "uv",
   "args": [
     "run",
     "--directory",
-    "/path/to/mcp-server-python-boilerplate",
+    "/path/to/mcp-rag-server",
     "python",
     "-m",
     "src.main"
@@ -83,194 +177,103 @@ Cline/CursorなどのAIツールでMCPサーバーを使用するには、`mcp_s
 }
 ```
 
-`/path/to/mcp-server-python-boilerplate`は、このリポジトリのインストールディレクトリに置き換えてください。
+`/path/to/mcp-rag-server`は、このリポジトリのインストールディレクトリに置き換えてください。
 
-## 独自のツールの追加方法
+## RAGツールの使用方法
 
-### 1. 直接ツールを追加する
+### search
 
-`src/example_tool.py`を参考に、独自のツールを実装します。
-
-```python
-def register_my_tools(server):
-    # ツールの登録
-    server.register_tool(
-        name="my_tool",
-        description="My custom tool",
-        input_schema={
-            "type": "object",
-            "properties": {
-                "param1": {
-                    "type": "string",
-                    "description": "Parameter 1",
-                },
-            },
-            "required": ["param1"],
-        },
-        handler=my_tool_handler,
-    )
-
-def my_tool_handler(params):
-    # ツールの実装
-    param1 = params.get("param1", "")
-
-    # 処理を実装
-    result = f"Processed: {param1}"
-
-    return {
-        "content": [
-            {
-                "type": "text",
-                "text": result,
-            }
-        ]
-    }
-```
-
-`src/main.py`に以下のコードを追加して、ツールを登録します：
-
-```python
-from .my_tools import register_my_tools
-
-# MCPサーバーの作成
-server = MCPServer()
-
-# サンプルツールの登録
-register_example_tools(server)
-
-# 独自のツールの登録
-register_my_tools(server)
-```
-
-### 2. 外部モジュールとして追加する
-
-別のPythonモジュールにツールを実装し、コマンドライン引数で指定することもできます：
-
-```bash
-python -m src.main --module myapp.tools
-```
-
-この場合、`myapp/tools.py`には以下のような関数を実装します：
-
-```python
-def register_tools(server):
-    # ツールの登録
-    server.register_tool(...)
-```
-
-## MCPツールの使用方法
-
-### get_system_info
-
-システム情報を取得します。
+ベクトル検索を行います。
 
 ```json
 {
   "jsonrpc": "2.0",
-  "method": "get_system_info",
-  "params": {},
+  "method": "search",
+  "params": {
+    "query": "Pythonのジェネレータとは何ですか？",
+    "limit": 5
+  },
   "id": 1
 }
 ```
 
-### get_current_time
+### get_document_count
 
-現在の日時を取得します。
+インデックス内のドキュメント数を取得します。
 
 ```json
 {
   "jsonrpc": "2.0",
-  "method": "get_current_time",
-  "params": {
-    "format": "%Y-%m-%d %H:%M:%S"
-  },
+  "method": "get_document_count",
+  "params": {},
   "id": 2
 }
 ```
 
-### echo
+## 使用例
 
-入力されたテキストをそのまま返します。
+1. ドキュメントファイルを `data/source` ディレクトリに配置します。サポートされるファイル形式は以下の通りです：
+   - マークダウン（.md, .markdown）
+   - テキスト（.txt）
+   - パワーポイント（.ppt, .pptx）
+   - Word（.doc, .docx）
+   - PDF（.pdf）
 
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "echo",
-  "params": {
-    "text": "Hello, MCP!"
-  },
-  "id": 3
-}
+2. CLIコマンドを使用してドキュメントをインデックス化します：
+   ```bash
+   # 初回は全件インデックス化
+   python -m src.cli index
+   
+   # 以降は差分インデックス化で効率的に更新
+   python -m src.cli index -i
+   ```
+
+3. MCPサーバーを起動します：
+   ```bash
+   uv run python -m src.main
+   ```
+
+4. `search`ツールを使用して検索を行います。
+
+## ディレクトリ構造
+
 ```
-
-## MCPサーバーの開発ガイド
-
-### 1. ツールの設計
-
-ツールを設計する際は、以下の点を考慮してください：
-
-- ツールの目的と機能を明確にする
-- 入力パラメータとその型を定義する
-- 出力フォーマットを決定する
-- エラーケースを考慮する
-
-### 2. ツールの実装
-
-ツールを実装する際は、以下のパターンに従ってください：
-
-```python
-def my_tool_handler(params):
-    try:
-        # パラメータの取得と検証
-        param1 = params.get("param1")
-        if not param1:
-            raise ValueError("param1 is required")
-
-        # 処理の実装
-        result = process_data(param1)
-
-        # 結果の返却
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": result,
-                }
-            ]
-        }
-    except Exception as e:
-        # エラーハンドリング
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": f"Error: {str(e)}",
-                }
-            ],
-            "isError": True,
-        }
-```
-
-### 3. ツールの登録
-
-ツールを登録する際は、以下のパターンに従ってください：
-
-```python
-server.register_tool(
-    name="my_tool",                # ツール名
-    description="My custom tool",  # ツールの説明
-    input_schema={                 # 入力スキーマ
-        "type": "object",
-        "properties": {
-            "param1": {
-                "type": "string",
-                "description": "Parameter 1",
-            },
-        },
-        "required": ["param1"],
-    },
-    handler=my_tool_handler,       # ハンドラ関数
-)
+mcp-rag-server/
+├── data/
+│   ├── source/        # 原稿ファイル（階層構造対応）
+│   │   ├── markdown/  # マークダウンファイル
+│   │   ├── docs/      # ドキュメントファイル
+│   │   └── slides/    # プレゼンテーションファイル
+│   └── processed/     # 処理済みファイル（テキスト抽出済み）
+│       └── file_registry.json  # 処理済みファイルの情報（差分インデックス用）
+├── docs/
+│   └── design.md      # 設計書
+├── logs/              # ログファイル
+├── src/
+│   ├── __init__.py
+│   ├── document_processor.py  # ドキュメント処理モジュール
+│   ├── embedding_generator.py # エンベディング生成モジュール
+│   ├── example_tool.py        # サンプルツールモジュール
+│   ├── main.py                # メインエントリーポイント
+│   ├── mcp_server.py          # MCPサーバーモジュール
+│   ├── rag_service.py         # RAGサービスモジュール
+│   ├── rag_tools.py           # RAGツールモジュール
+│   └── vector_database.py     # ベクトルデータベースモジュール
+├── tests/
+│   ├── __init__.py
+│   ├── conftest.py
+│   ├── test_document_processor.py
+│   ├── test_embedding_generator.py
+│   ├── test_example_tool.py
+│   ├── test_mcp_server.py
+│   ├── test_rag_service.py
+│   ├── test_rag_tools.py
+│   └── test_vector_database.py
+├── .env           # 環境変数設定ファイル
+├── .gitignore
+├── LICENSE
+├── pyproject.toml
+└── README.md
 ```
 
 ## ライセンス

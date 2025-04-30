@@ -1,17 +1,20 @@
 #!/usr/bin/env python
 """
-Python MCP Server Boilerplate
+MCP RAG Server
 
-Model Context Protocol (MCP)に準拠したPythonサーバーのボイラープレート
+Model Context Protocol (MCP)に準拠したRAG機能を持つPythonサーバー
 """
 
 import sys
+import os
 import argparse
 import importlib
+import logging
 from dotenv import load_dotenv
 
 from .mcp_server import MCPServer
 from .example_tool import register_example_tools
+from .rag_tools import register_rag_tools, create_rag_service_from_env
 
 
 def main():
@@ -22,16 +25,32 @@ def main():
     """
     # コマンドライン引数の解析
     parser = argparse.ArgumentParser(
-        description="Python MCP Server - Model Context Protocol (MCP)に準拠したPythonサーバーのボイラープレート"
+        description="MCP RAG Server - Model Context Protocol (MCP)に準拠したRAG機能を持つPythonサーバー"
     )
-    parser.add_argument("--name", default="mcp-server-python", help="サーバー名")
+    parser.add_argument("--name", default="mcp-rag-server", help="サーバー名")
     parser.add_argument("--version", default="0.1.0", help="サーバーバージョン")
-    parser.add_argument("--description", default="Python MCP Server", help="サーバーの説明")
+    parser.add_argument("--description", default="MCP RAG Server - 複数形式のドキュメントのRAG検索", help="サーバーの説明")
     parser.add_argument("--module", help="追加のツールモジュール（例: myapp.tools）")
     args = parser.parse_args()
 
     # 環境変数の読み込み
     load_dotenv()
+
+    # ディレクトリの作成
+    os.makedirs("logs", exist_ok=True)
+    os.makedirs(os.environ.get("SOURCE_DIR", "data/source"), exist_ok=True)
+    os.makedirs(os.environ.get("PROCESSED_DIR", "data/processed"), exist_ok=True)
+
+    # ロギングの設定
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[
+            logging.StreamHandler(sys.stderr),
+            logging.FileHandler(os.path.join("logs", "mcp_rag_server.log"), encoding="utf-8"),
+        ],
+    )
+    logger = logging.getLogger("main")
 
     try:
         # MCPサーバーの作成
@@ -39,6 +58,12 @@ def main():
 
         # サンプルツールの登録
         register_example_tools(server)
+
+        # RAGサービスの作成と登録
+        logger.info("RAGサービスを初期化しています...")
+        rag_service = create_rag_service_from_env()
+        register_rag_tools(server, rag_service)
+        logger.info("RAGツールを登録しました")
 
         # 追加のツールモジュールがある場合は読み込む
         if args.module:
