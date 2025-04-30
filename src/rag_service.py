@@ -56,14 +56,23 @@ class RAGService:
             self.logger.error(f"データベースの初期化に失敗しました: {str(e)}")
             raise
 
-    def index_documents(self, directory_path: str, chunk_size: int = 500, chunk_overlap: int = 100) -> Dict[str, Any]:
+    def index_documents(
+        self,
+        source_dir: str,
+        processed_dir: str = None,
+        chunk_size: int = 500,
+        chunk_overlap: int = 100,
+        incremental: bool = False,
+    ) -> Dict[str, Any]:
         """
-        ディレクトリ内のマークダウンファイルをインデックス化します。
+        ディレクトリ内のファイルをインデックス化します。
 
         Args:
-            directory_path: インデックス化するマークダウンファイルが含まれるディレクトリのパス
+            source_dir: インデックス化するファイルが含まれるディレクトリのパス
+            processed_dir: 処理済みファイルを保存するディレクトリのパス（指定がない場合はdata/processed）
             chunk_size: チャンクサイズ（文字数）
             chunk_overlap: チャンク間のオーバーラップ（文字数）
+            incremental: 差分のみをインデックス化するかどうか
 
         Returns:
             インデックス化の結果
@@ -75,18 +84,28 @@ class RAGService:
         start_time = time.time()
         document_count = 0
 
+        # 処理済みディレクトリのデフォルト値
+        if processed_dir is None:
+            processed_dir = "data/processed"
+
         try:
-            # ディレクトリ内のマークダウンファイルを処理
-            self.logger.info(f"ディレクトリ '{directory_path}' 内のマークダウンファイルをインデックス化しています...")
-            chunks = self.document_processor.process_directory(directory_path, chunk_size, chunk_overlap)
+            # ディレクトリ内のファイルを処理
+            if incremental:
+                self.logger.info(f"ディレクトリ '{source_dir}' 内の差分ファイルをインデックス化しています...")
+            else:
+                self.logger.info(f"ディレクトリ '{source_dir}' 内のファイルをインデックス化しています...")
+
+            chunks = self.document_processor.process_directory(
+                source_dir, processed_dir, chunk_size, chunk_overlap, incremental
+            )
 
             if not chunks:
-                self.logger.warning(f"ディレクトリ '{directory_path}' 内にマークダウンファイルが見つかりませんでした")
+                self.logger.warning(f"ディレクトリ '{source_dir}' 内に処理可能なファイルが見つかりませんでした")
                 return {
                     "document_count": 0,
                     "processing_time": time.time() - start_time,
                     "success": True,
-                    "message": f"ディレクトリ '{directory_path}' 内にマークダウンファイルが見つかりませんでした",
+                    "message": f"ディレクトリ '{source_dir}' 内に処理可能なファイルが見つかりませんでした",
                 }
 
             # チャンクのコンテンツからエンベディングを生成
@@ -108,6 +127,8 @@ class RAGService:
                         "metadata": {
                             "file_name": os.path.basename(chunk["file_path"]),
                             "directory": os.path.dirname(chunk["file_path"]),
+                            "original_file_path": chunk.get("original_file_path", ""),
+                            "directory_suffix": chunk.get("metadata", {}).get("directory_suffix", ""),
                         },
                     }
                 )

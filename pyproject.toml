@@ -34,7 +34,8 @@ dev = [
 ]
 
 [project.scripts]
-mcp-rag-server = "main:main"
+mcp-rag-server = "src.main:main"
+mcp-rag-cli = "src.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

@@ -21,33 +21,6 @@ def register_rag_tools(server, rag_service: RAGService):
         server: MCPサーバーのインスタンス
         rag_service: RAGサービスのインスタンス
     """
-    # インデックス化ツールの登録
-    server.register_tool(
-        name="index_documents",
-        description="マークダウンファイルをインデックス化します",
-        input_schema={
-            "type": "object",
-            "properties": {
-                "directory_path": {
-                    "type": "string",
-                    "description": "インデックス化するマークダウンファイルが含まれるディレクトリのパス",
-                },
-                "chunk_size": {
-                    "type": "integer",
-                    "description": "チャンクサイズ（文字数）",
-                    "default": 500,
-                },
-                "chunk_overlap": {
-                    "type": "integer",
-                    "description": "チャンク間のオーバーラップ（文字数）",
-                    "default": 100,
-                },
-            },
-            "required": ["directory_path"],
-        },
-        handler=lambda params: index_documents_handler(params, rag_service),
-    )
-
     # 検索ツールの登録
     server.register_tool(
         name="search",
@@ -70,18 +43,6 @@ def register_rag_tools(server, rag_service: RAGService):
         handler=lambda params: search_handler(params, rag_service),
     )
 
-    # インデックスクリアツールの登録
-    server.register_tool(
-        name="clear_index",
-        description="インデックスをクリアします",
-        input_schema={
-            "type": "object",
-            "properties": {},
-            "required": [],
-        },
-        handler=lambda params: clear_index_handler(params, rag_service),
-    )
-
     # ドキュメント数取得ツールの登録
     server.register_tool(
         name="get_document_count",
@@ -93,88 +54,6 @@ def register_rag_tools(server, rag_service: RAGService):
         },
         handler=lambda params: get_document_count_handler(params, rag_service),
     )
-
-
-def index_documents_handler(params: Dict[str, Any], rag_service: RAGService) -> Dict[str, Any]:
-    """
-    マークダウンファイルをインデックス化するハンドラ関数
-
-    Args:
-        params: パラメータ
-            - directory_path: インデックス化するマークダウンファイルが含まれるディレクトリのパス
-            - chunk_size: チャンクサイズ（文字数）（オプション）
-            - chunk_overlap: チャンク間のオーバーラップ（文字数）（オプション）
-        rag_service: RAGサービスのインスタンス
-
-    Returns:
-        インデックス化の結果
-    """
-    directory_path = params.get("directory_path")
-    chunk_size = params.get("chunk_size", 500)
-    chunk_overlap = params.get("chunk_overlap", 100)
-
-    # ディレクトリパスの検証
-    if not os.path.exists(directory_path):
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": f"エラー: ディレクトリ '{directory_path}' が見つかりません",
-                }
-            ],
-            "isError": True,
-        }
-
-    if not os.path.isdir(directory_path):
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": f"エラー: '{directory_path}' はディレクトリではありません",
-                }
-            ],
-            "isError": True,
-        }
-
-    try:
-        # インデックス化を実行
-        result = rag_service.index_documents(directory_path, chunk_size, chunk_overlap)
-
-        if result["success"]:
-            return {
-                "content": [
-                    {
-                        "type": "text",
-                        "text": f"インデックス化が完了しました\n"
-                        f"- ドキュメント数: {result['document_count']}\n"
-                        f"- 処理時間: {result['processing_time']:.2f} 秒\n"
-                        f"- メッセージ: {result.get('message', '')}",
-                    }
-                ]
-            }
-        else:
-            return {
-                "content": [
-                    {
-                        "type": "text",
-                        "text": f"インデックス化に失敗しました\n"
-                        f"- エラー: {result.get('error', '不明なエラー')}\n"
-                        f"- 処理時間: {result['processing_time']:.2f} 秒",
-                    }
-                ],
-                "isError": True,
-            }
-
-    except Exception as e:
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": f"インデックス化中にエラーが発生しました: {str(e)}",
-                }
-            ],
-            "isError": True,
-        }
 
 
 def search_handler(params: Dict[str, Any], rag_service: RAGService) -> Dict[str, Any]:
@@ -212,7 +91,7 @@ def search_handler(params: Dict[str, Any], rag_service: RAGService) -> Dict[str,
                 "content": [
                     {
                         "type": "text",
-                        "text": "インデックスにドキュメントが存在しません。先にindex_documentsツールを使用してドキュメントをインデックス化してください。",
+                        "text": "インデックスにドキュメントが存在しません。CLIコマンド `python -m src.cli index` を使用してドキュメントをインデックス化してください。",
                     }
                 ],
                 "isError": True,
@@ -258,55 +137,6 @@ def search_handler(params: Dict[str, Any], rag_service: RAGService) -> Dict[str,
                 {
                     "type": "text",
                     "text": f"検索中にエラーが発生しました: {str(e)}",
-                }
-            ],
-            "isError": True,
-        }
-
-
-def clear_index_handler(params: Dict[str, Any], rag_service: RAGService) -> Dict[str, Any]:
-    """
-    インデックスをクリアするハンドラ関数
-
-    Args:
-        params: パラメータ（未使用）
-        rag_service: RAGサービスのインスタンス
-
-    Returns:
-        クリアの結果
-    """
-    try:
-        # インデックスをクリア
-        result = rag_service.clear_index()
-
-        if result["success"]:
-            return {
-                "content": [
-                    {
-                        "type": "text",
-                        "text": f"インデックスをクリアしました\n"
-                        f"- 削除されたドキュメント数: {result['deleted_count']}\n"
-                        f"- メッセージ: {result.get('message', '')}",
-                    }
-                ]
-            }
-        else:
-            return {
-                "content": [
-                    {
-                        "type": "text",
-                        "text": f"インデックスのクリアに失敗しました\n- エラー: {result.get('error', '不明なエラー')}",
-                    }
-                ],
-                "isError": True,
-            }
-
-    except Exception as e:
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": f"インデックスのクリア中にエラーが発生しました: {str(e)}",
                 }
             ],
             "isError": True,

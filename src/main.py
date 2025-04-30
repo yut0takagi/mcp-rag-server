@@ -29,12 +29,17 @@ def main():
     )
     parser.add_argument("--name", default="mcp-rag-server", help="サーバー名")
     parser.add_argument("--version", default="0.1.0", help="サーバーバージョン")
-    parser.add_argument("--description", default="MCP RAG Server - マークダウンファイルのRAG検索", help="サーバーの説明")
+    parser.add_argument("--description", default="MCP RAG Server - 複数形式のドキュメントのRAG検索", help="サーバーの説明")
     parser.add_argument("--module", help="追加のツールモジュール（例: myapp.tools）")
     args = parser.parse_args()
 
     # 環境変数の読み込み
     load_dotenv()
+
+    # ディレクトリの作成
+    os.makedirs("logs", exist_ok=True)
+    os.makedirs(os.environ.get("SOURCE_DIR", "data/source"), exist_ok=True)
+    os.makedirs(os.environ.get("PROCESSED_DIR", "data/processed"), exist_ok=True)
 
     # ロギングの設定
     logging.basicConfig(
@@ -48,9 +53,6 @@ def main():
     logger = logging.getLogger("main")
 
     try:
-        # ログディレクトリの作成
-        os.makedirs("logs", exist_ok=True)
-
         # MCPサーバーの作成
         server = MCPServer()
 
