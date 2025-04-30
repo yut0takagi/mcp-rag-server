@@ -1,15 +1,14 @@
-
 # 要件・設計書
 
 ## 1. 要件定義
 
 ### 1.1 基本情報
-- ソフトウェア名称: Python MCP Server Boilerplate
-- リポジトリ名: mcp-server-python-boilerplate
+- ソフトウェア名称: MCP RAG Server
+- リポジトリ名: mcp-rag-server
 
 ### 1.2 プロジェクト概要
 
-本プロジェクトは、Model Context Protocol (MCP)に準拠したPythonサーバーを簡単に作成するためのテンプレートリポジトリを提供することを目的とする。MCPは、LLMとサーバー間の通信プロトコルで、LLMに外部APIやサービスへのアクセス、リアルタイムデータの取得、アプリケーションやローカルシステムの制御などの機能を提供する。
+本プロジェクトは、Model Context Protocol (MCP)に準拠したRAG（Retrieval-Augmented Generation）機能を持つPythonサーバーを提供することを目的とする。マークダウンファイルをデータソースとして、multilingual-e5-largeモデルを使用してインデックス化し、ベクトル検索によって関連情報を取得する機能を提供する。
 
 ### 1.3 機能要件
 
@@ -18,14 +17,16 @@
 - ツールの登録と実行のためのメカニズム
 - エラーハンドリングとロギング
 
-#### 1.3.2 サンプルツール
-- システム情報を取得するツール
-- 現在の日時を取得するツール
-- エコーツール（入力されたテキストをそのまま返す）
+#### 1.3.2 RAG機能
+- マークダウンファイルの読み込みと解析
+- multilingual-e5-largeモデルを使用したエンベディング生成
+- PostgreSQLのpgvectorを使用したベクトルデータベース
+- ベクトル検索による関連情報の取得
 
-#### 1.3.3 拡張性
-- 独自のツールを簡単に追加可能
-- 外部モジュールからのツール登録をサポート
+#### 1.3.3 ツール
+- マークダウンファイルのインデックス化ツール
+- ベクトル検索ツール
+- データベース管理ツール（オプション）
 
 ### 1.4 非機能要件
 
@@ -37,6 +38,7 @@
 
 - Python 3.10以上で動作
 - JSON-RPC over stdioベースで動作
+- PostgreSQLとpgvectorエクステンションが必要
 
 ### 1.6 開発環境
 
@@ -44,11 +46,15 @@
 - 外部ライブラリ:
   - `mcp[cli]` (Model Context Protocol)
   - `python-dotenv`
+  - `psycopg2-binary` (PostgreSQL接続)
+  - `sentence-transformers` (エンベディング生成)
+  - `markdown` (マークダウン解析)
+  - `numpy` (ベクトル操作)
 
 ### 1.7 成果物
 
-- Python製MCPサーバーテンプレート
-- サンプルツール実装
+- Python製MCPサーバー
+- RAG機能の実装
 - README / 利用手順
 - 設計書
 
@@ -58,16 +64,24 @@
 
 #### 2.1.1 システムアーキテクチャ
 ```
-[MCPクライアント(Cline, Cursor)] <-> [MCPサーバー (Python)] <-> [外部API/サービス]
+[MCPクライアント(Cline, Cursor)] <-> [MCPサーバー (Python)] <-> [PostgreSQL (pgvector)]
+                                                              <-> [マークダウンファイル]
+                                                              <-> [multilingual-e5-large]
 ```
 
 #### 2.1.2 主要コンポーネント
 - **MCPサーバー**
   - JSON-RPC over stdioをリッスン
   - ツールの登録と実行を管理
-- **ツールモジュール**
-  - 各種ツールの実装
-  - 入力パラメータの処理と結果の返却
+- **ドキュメント管理**
+  - マークダウンファイルの読み込みと解析
+  - チャンク分割
+- **エンベディング生成**
+  - multilingual-e5-largeモデルを使用
+  - テキストからベクトル表現を生成
+- **ベクトルデータベース**
+  - PostgreSQLとpgvectorを使用
+  - ベクトルの保存と検索
 
 ### 2.2 詳細設計
 
@@ -81,38 +95,124 @@ class MCPServer:
     def _handle_tools_call(params: Dict[str, Any], request_id: Any) -> None
 ```
 
-##### サンプルツール関数
+##### `DocumentProcessor`
 ```python
-def get_system_info(params: Dict[str, Any]) -> Dict[str, Any]
-def get_current_time(params: Dict[str, Any]) -> Dict[str, Any]
-def echo(params: Dict[str, Any]) -> Dict[str, Any]
+class DocumentProcessor:
+    def read_markdown(file_path: str) -> str
+    def split_into_chunks(text: str, chunk_size: int, overlap: int) -> List[str]
+    def process_directory(directory_path: str) -> List[Dict[str, Any]]
+```
+
+##### `EmbeddingGenerator`
+```python
+class EmbeddingGenerator:
+    def __init__(model_name: str)
+    def generate_embedding(text: str) -> List[float]
+    def generate_embeddings(texts: List[str]) -> List[List[float]]
+```
+
+##### `VectorDatabase`
+```python
+class VectorDatabase:
+    def __init__(connection_params: Dict[str, Any])
+    def initialize_database() -> None
+    def insert_document(document_id: str, content: str, embedding: List[float], metadata: Dict[str, Any]) -> None
+    def search(query_embedding: List[float], limit: int = 5) -> List[Dict[str, Any]]
+    def delete_document(document_id: str) -> None
+    def clear_database() -> None
+```
+
+##### `RAGService`
+```python
+class RAGService:
+    def __init__(document_processor: DocumentProcessor, embedding_generator: EmbeddingGenerator, vector_database: VectorDatabase)
+    def index_documents(directory_path: str) -> Dict[str, Any]
+    def search(query: str, limit: int = 5) -> List[Dict[str, Any]]
+```
+
+#### 2.2.2 データベーススキーマ
+
+```sql
+-- ドキュメントテーブル
+CREATE TABLE documents (
+    id SERIAL PRIMARY KEY,
+    document_id TEXT UNIQUE NOT NULL,
+    content TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    chunk_index INTEGER NOT NULL,
+    embedding vector(1024),  -- multilingual-e5-largeの次元数
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- インデックス
+CREATE INDEX idx_documents_embedding ON documents USING ivfflat (embedding vector_cosine_ops);
 ```
 
 ### 2.3 インターフェース設計
 
-- JSON-RPCエンドポイント:
-  - `get_system_info`: システム情報を取得
-  - `get_current_time`: 現在の日時を取得
-  - `echo`: 入力されたテキストをそのまま返す
+#### 2.3.1 MCPツール
+
+##### `index_documents`
+マークダウンファイルをインデックス化するツール
+
+- 入力パラメータ:
+  - `directory_path`: インデックス化するマークダウンファイルが含まれるディレクトリのパス
+  - `chunk_size` (オプション): チャンクサイズ（デフォルト: 500）
+  - `chunk_overlap` (オプション): チャンクオーバーラップ（デフォルト: 100）
+
+- 出力:
+  - インデックス化されたドキュメント数
+  - 処理時間
+  - 成功/失敗のステータス
+
+##### `search`
+ベクトル検索を行うツール
+
+- 入力パラメータ:
+  - `query`: 検索クエリ
+  - `limit` (オプション): 返す結果の数（デフォルト: 5）
+
+- 出力:
+  - 検索結果のリスト（関連度順）
+    - ドキュメントID
+    - コンテンツ
+    - ファイルパス
+    - 関連度スコア
+
+##### `clear_index`
+インデックスをクリアするツール
+
+- 入力パラメータ: なし
+
+- 出力:
+  - 成功/失敗のステータス
 
 ### 2.4 セキュリティ設計
 
 - 環境変数で機密情報を管理（`.env`）
+  - PostgreSQL接続情報
 - 外部からの直接アクセスは制限（ローカル環境前提）
 
 ### 2.5 テスト設計
 
 - 単体テスト
-  - 各ツールの機能テスト
+  - 各コンポーネントの機能テスト
   - MCPサーバーの基本機能テスト
 - 統合テスト
+  - RAG機能の統合テスト
   - MCPリクエストを模擬した動作確認
 
 ### 2.6 開発環境・依存関係
 
 - Python 3.10+
-- `mcp[cli]`
-- `python-dotenv`
+- PostgreSQL 14+（pgvectorエクステンション付き）
+- 必要なPythonパッケージ:
+  - `mcp[cli]`
+  - `python-dotenv`
+  - `psycopg2-binary`
+  - `sentence-transformers`
+  - `markdown`
+  - `numpy`
 
 ### 2.7 開発工程
 
@@ -124,95 +224,90 @@ def echo(params: Dict[str, Any]) -> Dict[str, Any]
 | テスト | 単体・統合テスト | 第3週 |
 | リリース | ドキュメント整備・デプロイ対応 | 第3週 |
 
-## 3. MCPサーバーの開発ガイド
+## 3. 実装ガイド
 
-### 3.1 ツールの設計
+### 3.1 PostgreSQLとpgvectorのセットアップ
 
-ツールを設計する際は、以下の点を考慮する：
+#### 3.1.1 Dockerを使用する場合
 
-1. **目的と機能の明確化**
-   - ツールが解決する問題を明確にする
-   - 入出力の形式を決定する
-
-2. **入力パラメータの定義**
-   - 必須パラメータと任意パラメータを区別する
-   - 各パラメータの型と制約を定義する
-
-3. **出力フォーマットの決定**
-   - 成功時の出力形式を定義する
-   - エラー時の出力形式を定義する
-
-4. **エラーケースの考慮**
-   - 想定されるエラーケースをリストアップする
-   - 各エラーケースの処理方法を決定する
-
-### 3.2 ツールの実装パターン
-
-```python
-def my_tool_handler(params):
-    try:
-        # パラメータの取得と検証
-        param1 = params.get("param1")
-        if not param1:
-            raise ValueError("param1 is required")
-
-        # 処理の実装
-        result = process_data(param1)
-
-        # 結果の返却
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": result,
-                }
-            ]
-        }
-    except Exception as e:
-        # エラーハンドリング
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": f"Error: {str(e)}",
-                }
-            ],
-            "isError": True,
-        }
+```bash
+# pgvectorを含むPostgreSQLコンテナを起動
+docker run --name postgres-pgvector -e POSTGRES_PASSWORD=password -p 5432:5432 -d pgvector/pgvector:pg14
 ```
 
-### 3.3 ツールの登録パターン
+#### 3.1.2 既存のPostgreSQLにpgvectorをインストールする場合
 
-```python
-server.register_tool(
-    name="my_tool",                # ツール名
-    description="My custom tool",  # ツールの説明
-    input_schema={                 # 入力スキーマ
-        "type": "object",
-        "properties": {
-            "param1": {
-                "type": "string",
-                "description": "Parameter 1",
-            },
-        },
-        "required": ["param1"],
-    },
-    handler=my_tool_handler,       # ハンドラ関数
-)
+```bash
+# pgvectorエクステンションをインストール
+CREATE EXTENSION vector;
 ```
 
-### 3.4 MCPサーバーのシーケンス図
+### 3.2 環境変数の設定
 
-```mermaid
-sequenceDiagram
-    participant LLM as LLM
-    participant MCP as MCPサーバー
-    participant API as 外部API/サービス
+`.env`ファイルに以下の環境変数を設定:
 
-    LLM->>MCP: ツール呼び出しリクエスト
-    MCP->>MCP: パラメータのバリデーション
-    MCP->>API: 外部APIリクエスト（必要な場合）
-    API-->>MCP: レスポンス
-    MCP->>MCP: レスポンスの処理
-    MCP-->>LLM: 結果返却
 ```
+# PostgreSQL接続情報
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=password
+POSTGRES_DB=ragdb
+
+# マークダウンファイルのディレクトリ
+MARKDOWN_DIR=./data/markdown
+
+# エンベディングモデル
+EMBEDDING_MODEL=intfloat/multilingual-e5-large
+```
+
+### 3.3 実装の流れ
+
+1. 基本的なMCPサーバーの実装
+2. ドキュメント処理コンポーネントの実装
+3. エンベディング生成コンポーネントの実装
+4. ベクトルデータベースコンポーネントの実装
+5. RAGサービスの実装
+6. MCPツールの実装と登録
+7. テストとデバッグ
+
+### 3.4 使用例
+
+#### 3.4.1 インデックス化
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "index_documents",
+  "params": {
+    "directory_path": "./data/markdown",
+    "chunk_size": 500,
+    "chunk_overlap": 100
+  },
+  "id": 1
+}
+```
+
+#### 3.4.2 検索
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "search",
+  "params": {
+    "query": "Pythonのジェネレータとは何ですか？",
+    "limit": 5
+  },
+  "id": 2
+}
+```
+
+#### 3.4.3 インデックスのクリア
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "clear_index",
+  "params": {},
+  "id": 3
+}

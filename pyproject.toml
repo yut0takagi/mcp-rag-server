@@ -3,9 +3,9 @@ requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mcp-server-python-boilerplate"
+name = "mcp-rag-server"
 version = "0.1.0"
-description = "Python MCP Server Boilerplate - Model Context Protocol (MCP)に準拠したPythonサーバーを簡単に作成するためのテンプレート"
+description = "MCP RAG Server - Model Context Protocol (MCP)に準拠したRAG機能を持つPythonサーバー"
 authors = [
     {name = "MCP Server Team"}
 ]
@@ -22,6 +22,10 @@ classifiers = [
 dependencies = [
     "mcp[cli]",
     "python-dotenv",
+    "psycopg2-binary",
+    "sentence-transformers",
+    "markdown",
+    "numpy",
 ]
 
 [project.optional-dependencies]
@@ -30,7 +34,7 @@ dev = [
 ]
 
 [project.scripts]
-mcp-server-python = "main:main"
+mcp-rag-server = "main:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
