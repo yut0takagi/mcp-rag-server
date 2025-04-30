@@ -4,10 +4,9 @@
 マークダウンファイルの読み込みと解析、チャンク分割を行います。
 """
 
-import os
 import logging
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 
 class DocumentProcessor:

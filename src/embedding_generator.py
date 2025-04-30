@@ -5,8 +5,7 @@
 """
 
 import logging
-import numpy as np
-from typing import List, Dict, Any, Union
+from typing import List
 from sentence_transformers import SentenceTransformer
 
 

@@ -8,7 +8,7 @@ RAGサービスモジュール
 import os
 import time
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 from .document_processor import DocumentProcessor
 from .embedding_generator import EmbeddingGenerator

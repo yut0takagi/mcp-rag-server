@@ -7,7 +7,7 @@ PostgreSQLとpgvectorを使用してベクトルの保存と検索を行いま�
 import logging
 import psycopg2
 import json
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 
 
 class VectorDatabase:

@@ -5,7 +5,6 @@ MCPサーバーに登録するRAG関連ツールを提供します。
 """
 
 import os
-import logging
 from typing import Dict, Any
 
 from .document_processor import DocumentProcessor
