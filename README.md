@@ -171,17 +171,7 @@ Cline/CursorなどのAIツールでMCPサーバーを使用するには、`mcp_s
     "-m",
     "src.main"
   ],
-  "cwd": "/path/to/mcp-rag-server",
-  "env": {
-    "POSTGRES_HOST": "localhost",
-    "POSTGRES_PORT": "5432",
-    "POSTGRES_USER": "postgres",
-    "POSTGRES_PASSWORD": "password",
-    "POSTGRES_DB": "ragdb",
-    "SOURCE_DIR": "./data/source",
-    "PROCESSED_DIR": "./data/processed",
-    "EMBEDDING_MODEL": "intfloat/multilingual-e5-large"
-  },
+  "env": {},
   "disabled": false,
   "alwaysAllow": []
 }
