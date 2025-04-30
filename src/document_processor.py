@@ -99,7 +99,7 @@ class DocumentProcessor:
             file_uri = f"file://{os.path.abspath(file_path)}"
 
             # markitdownを使用して変換
-            markdown_content = markitdown.convert_to_markdown(file_uri)
+            markdown_content = markitdown.MarkItDown().convert_uri(file_uri).markdown
 
             self.logger.info(f"ファイル '{file_path}' をマークダウンに変換しました")
             return markdown_content
