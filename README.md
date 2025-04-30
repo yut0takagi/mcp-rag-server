@@ -42,9 +42,6 @@ MCP RAG Serverは、Model Context Protocol (MCP)に準拠したRAG（Retrieval-A
 
 # 依存関係のインストール
 uv sync
-
-# markitdownライブラリのインストール
-uv pip install markitdown
 ```
 
 ### PostgreSQLとpgvectorのセットアップ
