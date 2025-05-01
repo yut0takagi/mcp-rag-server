@@ -62,6 +62,8 @@ class DocumentProcessor:
             if ext in self.SUPPORTED_EXTENSIONS["text"]:
                 with open(file_path, "r", encoding="utf-8") as f:
                     content = f.read()
+                    # NUL文字を削除
+                    content = content.replace("\x00", "")
                 self.logger.info(f"テキストファイル '{file_path}' を読み込みました")
                 return content
 
@@ -100,6 +102,8 @@ class DocumentProcessor:
 
             # markitdownを使用して変換
             markdown_content = markitdown.MarkItDown().convert_uri(file_uri).markdown
+            # NUL文字を削除
+            markdown_content = markdown_content.replace("\x00", "")
 
             self.logger.info(f"ファイル '{file_path}' をマークダウンに変換しました")
             return markdown_content
