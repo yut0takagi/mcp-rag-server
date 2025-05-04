@@ -37,6 +37,21 @@ def register_rag_tools(server, rag_service: RAGService):
                     "description": "返す結果の数（デフォルト: 5）",
                     "default": 5,
                 },
+                "with_context": {
+                    "type": "boolean",
+                    "description": "前後のチャンクも取得するかどうか（デフォルト: true）",
+                    "default": True,
+                },
+                "context_size": {
+                    "type": "integer",
+                    "description": "前後に取得するチャンク数（デフォルト: 1）",
+                    "default": 1,
+                },
+                "full_document": {
+                    "type": "boolean",
+                    "description": "ドキュメント全体を取得するかどうか（デフォルト: false）",
+                    "default": False,
+                },
             },
             "required": ["query"],
         },
@@ -64,6 +79,9 @@ def search_handler(params: Dict[str, Any], rag_service: RAGService) -> Dict[str,
         params: パラメータ
             - query: 検索クエリ
             - limit: 返す結果の数（デフォルト: 5）
+            - with_context: 前後のチャンクも取得するかどうか（デフォルト: true）
+            - context_size: 前後に取得するチャンク数（デフォルト: 1）
+            - full_document: ドキュメント全体を取得するかどうか（デフォルト: false）
         rag_service: RAGサービスのインスタンス
 
     Returns:
@@ -71,6 +89,9 @@ def search_handler(params: Dict[str, Any], rag_service: RAGService) -> Dict[str,
     """
     query = params.get("query")
     limit = params.get("limit", 5)
+    with_context = params.get("with_context", True)
+    context_size = params.get("context_size", 1)
+    full_document = params.get("full_document", False)
 
     if not query:
         return {
@@ -97,8 +118,8 @@ def search_handler(params: Dict[str, Any], rag_service: RAGService) -> Dict[str,
                 "isError": True,
             }
 
-        # 検索を実行
-        results = rag_service.search(query, limit)
+        # 検索を実行（前後のチャンクも取得、ドキュメント全体も取得）
+        results = rag_service.search(query, limit, with_context, context_size, full_document)
 
         if not results:
             return {
@@ -110,6 +131,18 @@ def search_handler(params: Dict[str, Any], rag_service: RAGService) -> Dict[str,
                 ]
             }
 
+        # 結果をファイルごとにグループ化
+        file_groups = {}
+        for result in results:
+            file_path = result["file_path"]
+            if file_path not in file_groups:
+                file_groups[file_path] = []
+            file_groups[file_path].append(result)
+
+        # 各グループ内でチャンクインデックスでソート
+        for file_path in file_groups:
+            file_groups[file_path].sort(key=lambda x: x["chunk_index"])
+
         # 結果を整形
         content_items = [
             {
@@ -118,16 +151,46 @@ def search_handler(params: Dict[str, Any], rag_service: RAGService) -> Dict[str,
             }
         ]
 
-        for i, result in enumerate(results):
-            file_name = os.path.basename(result["file_path"])
-            similarity_percent = result["similarity"] * 100
+        # ファイルごとに結果を表示
+        for i, (file_path, group) in enumerate(file_groups.items()):
+            file_name = os.path.basename(file_path)
 
+            # ファイルヘッダー
             content_items.append(
                 {
                     "type": "text",
-                    "text": f"\n[{i + 1}] 類似度: {similarity_percent:.2f}%\nファイル: {file_name}\n\n{result['content']}",
+                    "text": f"\n[{i + 1}] ファイル: {file_name}",
                 }
             )
+
+            # 各チャンクを表示
+            for j, result in enumerate(group):
+                similarity_percent = result.get("similarity", 0) * 100
+                is_context = result.get("is_context", False)
+                is_full_document = result.get("is_full_document", False)
+
+                # 全文ドキュメント、コンテキストチャンク、検索ヒットチャンクで表示を変える
+                if is_full_document:
+                    content_items.append(
+                        {
+                            "type": "text",
+                            "text": f"\n+++ ドキュメント全文（チャンク {result['chunk_index']}) +++\n{result['content']}",
+                        }
+                    )
+                elif is_context:
+                    content_items.append(
+                        {
+                            "type": "text",
+                            "text": f"\n--- 前後のコンテキスト（チャンク {result['chunk_index']}) ---\n{result['content']}",
+                        }
+                    )
+                else:
+                    content_items.append(
+                        {
+                            "type": "text",
+                            "text": f"\n=== 検索ヒット（チャンク {result['chunk_index']}, 類似度: {similarity_percent:.2f}%) ===\n{result['content']}",
+                        }
+                    )
 
         return {"content": content_items}
 

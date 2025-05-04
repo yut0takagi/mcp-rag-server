@@ -152,13 +152,18 @@ class RAGService:
 
             return {"document_count": document_count, "processing_time": processing_time, "success": False, "error": str(e)}
 
-    def search(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+    def search(
+        self, query: str, limit: int = 5, with_context: bool = False, context_size: int = 1, full_document: bool = False
+    ) -> List[Dict[str, Any]]:
         """
         ベクトル検索を行います。
 
         Args:
             query: 検索クエリ
             limit: 返す結果の数（デフォルト: 5）
+            with_context: 前後のチャンクも取得するかどうか（デフォルト: False）
+            context_size: 前後に取得するチャンク数（デフォルト: 1）
+            full_document: ドキュメント全体を取得するかどうか（デフォルト: False）
 
         Returns:
             検索結果のリスト（関連度順）
@@ -167,6 +172,8 @@ class RAGService:
                 - file_path: ファイルパス
                 - similarity: 類似度
                 - metadata: メタデータ
+                - is_context: コンテキストチャンクかどうか（前後のチャンクの場合はTrue）
+                - is_full_document: 全文ドキュメントかどうか（ドキュメント全体の場合はTrue）
         """
         try:
             # クエリからエンベディングを生成
@@ -177,8 +184,121 @@ class RAGService:
             self.logger.info(f"クエリ '{query}' でベクトル検索を実行しています...")
             results = self.vector_database.search(query_embedding, limit)
 
-            self.logger.info(f"検索結果: {len(results)} 件")
-            return results
+            # 前後のチャンクも取得する場合
+            if with_context and context_size > 0:
+                context_results = []
+                processed_files = set()  # 処理済みのファイルとチャンクの組み合わせを記録
+
+                for result in results:
+                    file_path = result["file_path"]
+                    chunk_index = result["chunk_index"]
+                    file_chunk_key = f"{file_path}_{chunk_index}"
+
+                    # 既に処理済みのファイルとチャンクの組み合わせはスキップ
+                    if file_chunk_key in processed_files:
+                        continue
+
+                    processed_files.add(file_chunk_key)
+
+                    # 前後のチャンクを取得
+                    adjacent_chunks = self.vector_database.get_adjacent_chunks(file_path, chunk_index, context_size)
+                    context_results.extend(adjacent_chunks)
+
+                # 結果をマージ
+                all_results = results.copy()
+
+                # 重複を避けるために、既に結果に含まれているドキュメントIDを記録
+                existing_doc_ids = {result["document_id"] for result in all_results}
+
+                # 重複していないコンテキストチャンクのみを追加
+                for context in context_results:
+                    if context["document_id"] not in existing_doc_ids:
+                        all_results.append(context)
+                        existing_doc_ids.add(context["document_id"])
+
+                # ファイルパスとチャンクインデックスでソート
+                all_results.sort(key=lambda x: (x["file_path"], x["chunk_index"]))
+
+                self.logger.info(f"検索結果（コンテキスト含む）: {len(all_results)} 件")
+
+                # ドキュメント全体を取得する場合
+                if full_document:
+                    full_doc_results = []
+                    processed_files = set()  # 処理済みのファイルを記録
+
+                    # 検索結果に含まれるファイルの全文を取得
+                    for result in all_results:
+                        file_path = result["file_path"]
+
+                        # 既に処理済みのファイルはスキップ
+                        if file_path in processed_files:
+                            continue
+
+                        processed_files.add(file_path)
+
+                        # ファイルの全文を取得
+                        full_doc_chunks = self.vector_database.get_document_by_file_path(file_path)
+                        full_doc_results.extend(full_doc_chunks)
+
+                    # 結果をマージ
+                    merged_results = all_results.copy()
+
+                    # 重複を避けるために、既に結果に含まれているドキュメントIDを記録
+                    existing_doc_ids = {result["document_id"] for result in merged_results}
+
+                    # 重複していない全文チャンクのみを追加
+                    for doc_chunk in full_doc_results:
+                        if doc_chunk["document_id"] not in existing_doc_ids:
+                            merged_results.append(doc_chunk)
+                            existing_doc_ids.add(doc_chunk["document_id"])
+
+                    # ファイルパスとチャンクインデックスでソート
+                    merged_results.sort(key=lambda x: (x["file_path"], x["chunk_index"]))
+
+                    self.logger.info(f"検索結果（全文含む）: {len(merged_results)} 件")
+                    return merged_results
+                else:
+                    return all_results
+            else:
+                # ドキュメント全体を取得する場合
+                if full_document:
+                    full_doc_results = []
+                    processed_files = set()  # 処理済みのファイルを記録
+
+                    # 検索結果に含まれるファイルの全文を取得
+                    for result in results:
+                        file_path = result["file_path"]
+
+                        # 既に処理済みのファイルはスキップ
+                        if file_path in processed_files:
+                            continue
+
+                        processed_files.add(file_path)
+
+                        # ファイルの全文を取得
+                        full_doc_chunks = self.vector_database.get_document_by_file_path(file_path)
+                        full_doc_results.extend(full_doc_chunks)
+
+                    # 結果をマージ
+                    merged_results = results.copy()
+
+                    # 重複を避けるために、既に結果に含まれているドキュメントIDを記録
+                    existing_doc_ids = {result["document_id"] for result in merged_results}
+
+                    # 重複していない全文チャンクのみを追加
+                    for doc_chunk in full_doc_results:
+                        if doc_chunk["document_id"] not in existing_doc_ids:
+                            merged_results.append(doc_chunk)
+                            existing_doc_ids.add(doc_chunk["document_id"])
+
+                    # ファイルパスとチャンクインデックスでソート
+                    merged_results.sort(key=lambda x: (x["file_path"], x["chunk_index"]))
+
+                    self.logger.info(f"検索結果（全文含む）: {len(merged_results)} 件")
+                    return merged_results
+                else:
+                    self.logger.info(f"検索結果: {len(results)} 件")
+                    return results
 
         except Exception as e:
             self.logger.error(f"検索中にエラーが発生しました: {str(e)}")
