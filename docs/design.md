@@ -24,6 +24,8 @@
 - multilingual-e5-largeモデルを使用したエンベディング生成
 - PostgreSQLのpgvectorを使用したベクトルデータベース
 - ベクトル検索による関連情報の取得
+- 前後のチャンク取得機能（コンテキストの連続性を確保）
+- ドキュメント全文取得機能（完全なコンテキストを提供）
 - 差分インデックス化機能（新規・変更ファイルのみを処理）
 
 #### 1.3.3 ツール
@@ -241,6 +243,8 @@ class VectorDatabase:
     def delete_by_file_path(file_path: str) -> int
     def clear_database() -> int
     def get_document_count() -> int
+    def get_adjacent_chunks(file_path: str, chunk_index: int, context_size: int = 1) -> List[Dict[str, Any]]
+    def get_document_by_file_path(file_path: str) -> List[Dict[str, Any]]
 ```
 
 ##### `RAGService`
@@ -248,7 +252,7 @@ class VectorDatabase:
 class RAGService:
     def __init__(document_processor: DocumentProcessor, embedding_generator: EmbeddingGenerator, vector_database: VectorDatabase)
     def index_documents(source_dir: str, processed_dir: str = None, chunk_size: int = 500, chunk_overlap: int = 100, incremental: bool = False) -> Dict[str, Any]
-    def search(query: str, limit: int = 5) -> List[Dict[str, Any]]
+    def search(query: str, limit: int = 5, with_context: bool = False, context_size: int = 1, full_document: bool = False) -> List[Dict[str, Any]]
     def clear_index() -> Dict[str, Any]
     def get_document_count() -> int
 ```
@@ -282,13 +286,20 @@ CREATE INDEX idx_documents_embedding ON documents USING ivfflat (embedding vecto
 - 入力パラメータ:
   - `query`: 検索クエリ
   - `limit` (オプション): 返す結果の数（デフォルト: 5）
+  - `with_context` (オプション): 前後のチャンクも取得するかどうか（デフォルト: true）
+  - `context_size` (オプション): 前後に取得するチャンク数（デフォルト: 1）
+  - `full_document` (オプション): ドキュメント全体を取得するかどうか（デフォルト: false）
 
 - 出力:
-  - 検索結果のリスト（関連度順）
+  - 検索結果のリスト（ファイルパスとチャンクインデックスでソート）
     - ドキュメントID
     - コンテンツ
     - ファイルパス
+    - チャンクインデックス
     - 関連度スコア
+    - メタデータ
+    - コンテキストフラグ（前後のチャンクの場合はTrue）
+    - 全文ドキュメントフラグ（ドキュメント全体の場合はTrue）
 
 ##### `get_document_count`
 インデックス内のドキュメント数を取得するツール
@@ -453,7 +464,41 @@ python -m src.cli clear
   "method": "search",
   "params": {
     "query": "Pythonのジェネレータとは何ですか？",
-    "limit": 5
+    "limit": 5,
+    "with_context": true,
+    "context_size": 1,
+    "full_document": false
+  },
+  "id": 1
+}
+```
+
+##### 前後のチャンクを取得する例
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "search",
+  "params": {
+    "query": "Pythonのジェネレータとは何ですか？",
+    "limit": 3,
+    "with_context": true,
+    "context_size": 2
+  },
+  "id": 1
+}
+```
+
+##### ドキュメント全体を取得する例
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "search",
+  "params": {
+    "query": "Pythonのジェネレータとは何ですか？",
+    "limit": 3,
+    "full_document": true
   },
   "id": 1
 }

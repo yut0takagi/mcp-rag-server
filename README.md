@@ -20,6 +20,8 @@ MCP RAG Serverは、Model Context Protocol (MCP)に準拠したRAG（Retrieval-A
   - multilingual-e5-largeモデルを使用したエンベディング生成
   - PostgreSQLのpgvectorを使用したベクトルデータベース
   - ベクトル検索による関連情報の取得
+  - 前後のチャンク取得機能（コンテキストの連続性を確保）
+  - ドキュメント全文取得機能（完全なコンテキストを提供）
   - 差分インデックス化機能（新規・変更ファイルのみを処理）
 
 - **ツール**
@@ -188,11 +190,41 @@ Cline/CursorなどのAIツールでMCPサーバーを使用するには、`mcp_s
   "method": "search",
   "params": {
     "query": "Pythonのジェネレータとは何ですか？",
-    "limit": 5
+    "limit": 5,
+    "with_context": true,
+    "context_size": 1,
+    "full_document": false
   },
   "id": 1
 }
 ```
+
+#### パラメータの説明
+
+- `query`: 検索クエリ（必須）
+- `limit`: 返す結果の数（デフォルト: 5）
+- `with_context`: 前後のチャンクも取得するかどうか（デフォルト: true）
+- `context_size`: 前後に取得するチャンク数（デフォルト: 1）
+- `full_document`: ドキュメント全体を取得するかどうか（デフォルト: false）
+
+#### 検索結果の改善
+
+このツールは以下の機能により、より良い検索結果を提供します：
+
+1. **前後のチャンク取得機能**：
+   - 検索でヒットしたチャンクの前後のチャンクも取得して結果に含めます
+   - `with_context`パラメータで有効/無効を切り替え可能
+   - `context_size`パラメータで前後に取得するチャンク数を調整可能
+
+2. **ドキュメント全文取得機能**：
+   - 検索でヒットしたドキュメントの全文を取得して結果に含めます
+   - `full_document`パラメータで有効/無効を切り替え可能
+   - 特に短いドキュメントや全体の文脈が重要なドキュメントを扱う場合に有用
+
+3. **結果の整形改善**：
+   - 検索結果をファイルごとにグループ化
+   - 「検索ヒット」「前後のコンテキスト」「ドキュメント全文」を視覚的に区別
+   - チャンクインデックスでソートして文書の流れを維持
 
 ### get_document_count
 
@@ -220,7 +252,7 @@ Cline/CursorなどのAIツールでMCPサーバーを使用するには、`mcp_s
    ```bash
    # 初回は全件インデックス化
    python -m src.cli index
-   
+
    # 以降は差分インデックス化で効率的に更新
    python -m src.cli index -i
    ```
@@ -231,6 +263,124 @@ Cline/CursorなどのAIツールでMCPサーバーを使用するには、`mcp_s
    ```
 
 4. `search`ツールを使用して検索を行います。
+
+## バックアップと復元
+
+インデックス化したデータベースを別のPCで使用するには、以下の手順でバックアップと復元を行います。
+
+### 最小限のバックアップ（PostgreSQLデータベースのみ）
+
+単純に他のPCでRAG検索機能を使いたいだけなら、PostgreSQLデータベースのバックアップだけで十分です。ベクトル化されたデータはすべてデータベースに保存されているためです。
+
+#### PostgreSQLデータベースのバックアップ
+
+PostgreSQLデータベースをバックアップするには、Dockerコンテナ内で`pg_dump`コマンドを使用します：
+
+```bash
+# Dockerコンテナ内でデータベースをバックアップ
+docker exec -it postgres-pgvector pg_dump -U postgres -d ragdb -F c -f /tmp/ragdb_backup.dump
+
+# バックアップファイルをコンテナからホストにコピー
+docker cp postgres-pgvector:/tmp/ragdb_backup.dump ./ragdb_backup.dump
+```
+
+これにより、PostgreSQLデータベースのバックアップファイル（例：239MB）がカレントディレクトリに作成されます。
+
+#### 最小限の復元手順
+
+1. 新しいPCでPostgreSQLとpgvectorをセットアップします：
+
+```bash
+# Dockerを使用する場合
+docker run --name postgres-pgvector -e POSTGRES_PASSWORD=password -p 5432:5432 -d pgvector/pgvector:pg14
+
+# データベースを作成
+docker exec -it postgres-pgvector psql -U postgres -c "CREATE DATABASE ragdb;"
+```
+
+2. バックアップからデータベースを復元します：
+
+```bash
+# バックアップファイルをコンテナにコピー
+docker cp ./ragdb_backup.dump postgres-pgvector:/tmp/ragdb_backup.dump
+
+# コンテナ内でデータベースを復元
+docker exec -it postgres-pgvector pg_restore -U postgres -d ragdb -c /tmp/ragdb_backup.dump
+```
+
+3. 環境設定を確認します：
+
+新しいPCでは、`.env`ファイルのPostgreSQL接続情報が正しく設定されていることを確認してください。
+
+4. 動作確認：
+
+```bash
+python -m src.cli count
+```
+
+これにより、インデックス内のドキュメント数が表示されます。元のPCと同じ数が表示されれば、正常に復元されています。
+
+### 完全バックアップ（オプション）
+
+将来的に新しいドキュメントを追加する予定がある場合や、差分インデックス化機能を使用したい場合は、以下の追加バックアップも行うと良いでしょう：
+
+#### 処理済みドキュメントのバックアップ
+
+処理済みドキュメントディレクトリをバックアップします：
+
+```bash
+# 処理済みドキュメントディレクトリをZIPファイルにバックアップ
+zip -r processed_data_backup.zip data/processed/
+```
+
+#### 環境設定ファイルのバックアップ
+
+`.env`ファイルをバックアップします：
+
+```bash
+# .envファイルをコピー
+cp .env env_backup.txt
+```
+
+#### 完全復元手順
+
+1. 前提条件
+
+新しいPCには以下のソフトウェアがインストールされている必要があります：
+
+- Python 3.10以上
+- PostgreSQL 14以上（pgvectorエクステンション付き）
+- mcp-rag-serverのコードベース
+
+2. PostgreSQLデータベースを上記の「最小限の復元手順」で復元します。
+
+3. 処理済みドキュメントを復元します：
+
+```bash
+# ZIPファイルを展開
+unzip processed_data_backup.zip -d /path/to/mcp-rag-server/
+```
+
+4. 環境設定ファイルを復元します：
+
+```bash
+# .envファイルを復元
+cp env_backup.txt /path/to/mcp-rag-server/.env
+```
+
+必要に応じて、新しいPC環境に合わせて`.env`ファイルの設定（特にPostgreSQL接続情報）を編集します。
+
+5. 動作確認：
+
+```bash
+python -m src.cli count
+```
+
+### 注意点
+
+- PostgreSQLのバージョンとpgvectorのバージョンは、元のPCと新しいPCで互換性がある必要があります。
+- 大量のデータがある場合は、バックアップと復元に時間がかかる場合があります。
+- 新しいPCでは、必要なPythonパッケージ（`sentence-transformers`、`psycopg2-binary`など）をインストールしておく必要があります。
 
 ## ディレクトリ構造
 

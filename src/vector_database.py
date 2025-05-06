@@ -516,6 +516,177 @@ class VectorDatabase:
             self.logger.error(f"ドキュメント数の取得中にエラーが発生しました: {str(e)}")
             raise
 
+    def get_adjacent_chunks(self, file_path: str, chunk_index: int, context_size: int = 1) -> List[Dict[str, Any]]:
+        """
+        指定されたチャンクの前後のチャンクを取得します。
+
+        Args:
+            file_path: ファイルパス
+            chunk_index: チャンクインデックス
+            context_size: 前後に取得するチャンク数（デフォルト: 1）
+
+        Returns:
+            前後のチャンクのリスト
+
+        Raises:
+            Exception: 取得に失敗した場合
+        """
+        try:
+            # 接続がない場合は接続
+            if not self.connection:
+                self.connect()
+
+            # カーソルの作成
+            cursor = self.connection.cursor()
+
+            # 前後のチャンクを取得
+            min_index = max(0, chunk_index - context_size)
+            max_index = chunk_index + context_size
+
+            cursor.execute(
+                """
+                SELECT
+                    document_id,
+                    content,
+                    file_path,
+                    chunk_index,
+                    metadata,
+                    1 AS similarity
+                FROM
+                    documents
+                WHERE
+                    file_path = %s
+                    AND chunk_index >= %s
+                    AND chunk_index <= %s
+                    AND chunk_index != %s
+                ORDER BY
+                    chunk_index
+                """,
+                (file_path, min_index, max_index, chunk_index),
+            )
+
+            # 結果の取得
+            results = []
+            for row in cursor.fetchall():
+                document_id, content, file_path, chunk_index, metadata_json, similarity = row
+
+                # メタデータをJSONからデコード
+                if metadata_json:
+                    if isinstance(metadata_json, str):
+                        try:
+                            metadata = json.loads(metadata_json)
+                        except json.JSONDecodeError:
+                            metadata = {}
+                    else:
+                        # 既に辞書型の場合はそのまま使用
+                        metadata = metadata_json
+                else:
+                    metadata = {}
+
+                results.append(
+                    {
+                        "document_id": document_id,
+                        "content": content,
+                        "file_path": file_path,
+                        "chunk_index": chunk_index,
+                        "metadata": metadata,
+                        "similarity": similarity,
+                        "is_context": True,  # コンテキストチャンクであることを示すフラグ
+                    }
+                )
+
+            self.logger.info(
+                f"ファイル '{file_path}' のチャンク {chunk_index} の前後 {len(results)} 件のチャンクを取得しました"
+            )
+            return results
+
+        except Exception as e:
+            self.logger.error(f"前後のチャンク取得中にエラーが発生しました: {str(e)}")
+            raise
+
+        finally:
+            # カーソルを閉じる
+            if "cursor" in locals() and cursor:
+                cursor.close()
+
+    def get_document_by_file_path(self, file_path: str) -> List[Dict[str, Any]]:
+        """
+        指定されたファイルパスに基づいてドキュメント全体を取得します。
+
+        Args:
+            file_path: ファイルパス
+
+        Returns:
+            ドキュメント全体のチャンクのリスト
+
+        Raises:
+            Exception: 取得に失敗した場合
+        """
+        try:
+            # 接続がない場合は接続
+            if not self.connection:
+                self.connect()
+
+            # カーソルの作成
+            cursor = self.connection.cursor()
+
+            # ファイルパスに基づいてドキュメントを取得
+            cursor.execute(
+                """
+                SELECT
+                    document_id,
+                    content,
+                    file_path,
+                    chunk_index,
+                    metadata,
+                    1 AS similarity
+                FROM
+                    documents
+                WHERE
+                    file_path = %s
+                ORDER BY
+                    chunk_index
+                """,
+                (file_path,),
+            )
+
+            # 結果の取得
+            results = []
+            for row in cursor.fetchall():
+                document_id, content, file_path, chunk_index, metadata_json, similarity = row
+
+                # メタデータをJSONからデコード
+                if metadata_json:
+                    if isinstance(metadata_json, str):
+                        try:
+                            metadata = json.loads(metadata_json)
+                        except json.JSONDecodeError:
+                            metadata = {}
+                    else:
+                        # 既に辞書型の場合はそのまま使用
+                        metadata = metadata_json
+                else:
+                    metadata = {}
+
+                results.append(
+                    {
+                        "document_id": document_id,
+                        "content": content,
+                        "file_path": file_path,
+                        "chunk_index": chunk_index,
+                        "metadata": metadata,
+                        "similarity": similarity,
+                        "is_full_document": True,  # 全文ドキュメントであることを示すフラグ
+                    }
+                )
+
+            self.logger.info(f"ファイル '{file_path}' の全文 {len(results)} チャンクを取得しました")
+            return results
+
+        except Exception as e:
+            self.logger.error(f"ドキュメント全文の取得中にエラーが発生しました: {str(e)}")
+            raise
+
         finally:
             # カーソルを閉じる
             if "cursor" in locals() and cursor:
