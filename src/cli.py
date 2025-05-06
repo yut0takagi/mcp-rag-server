@@ -296,7 +296,10 @@ def main():
     # indexコマンド
     index_parser = subparsers.add_parser("index", help="ドキュメントをインデックス化する")
     index_parser.add_argument(
-        "--directory", "-d", default="./data/source", help="インデックス化するドキュメントが含まれるディレクトリのパス"
+        "--directory",
+        "-d",
+        default=os.environ.get("SOURCE_DIR", "./data/source"),
+        help="インデックス化するドキュメントが含まれるディレクトリのパス",
     )
     index_parser.add_argument("--chunk-size", "-s", type=int, default=500, help="チャンクサイズ（文字数）")
     index_parser.add_argument("--chunk-overlap", "-o", type=int, default=100, help="チャンク間のオーバーラップ（文字数）")
